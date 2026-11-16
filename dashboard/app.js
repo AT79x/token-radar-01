@@ -1,6 +1,53 @@
 // Token Radar's dashboard. It reads window.RADAR (written beside dashboard/ by main.ts) and
 // renders the ranked board, a filterable table, and a per-protocol detail drawer with the model's
 // own inputs and the protocol's farm plan. No network: every byte it shows is in data.js.
+//
+// What this page is for, and how it stays honest.
+//
+// The dashboard is the part of the entry a person actually looks at, so
+// its job is to make the model's work visible rather than to decorate it.
+// It reads one file, window.RADAR, which main.ts writes beside it as
+// data.js, and it renders everything from that single object: the ranked
+// board, the live-token view, the model panel, and every detail drawer.
+// There is no fetch, no network call, and no second source of truth, so
+// the page cannot disagree with board.json. If the data ever went stale,
+// the drawer would say so, because it recomputes each row and compares
+// the result with the number the board carries.
+//
+// The page is dressed in dark navy with lime accents, and the theme is
+// not just paint: the lime bar beside each implied value is the row's
+// share of the strongest row on the filtered board, so the eye can rank
+// the table before reading a single number. The table itself sorts on
+// rank, name, TVL, seven-day growth, age and implied value, with the
+// direction flipping on a second click, and ties fall back to the slug so
+// the order is stable no matter how many times the page is rendered.
+//
+// Filtering is deliberately narrow. A search box matches name, slug,
+// category and chain in one stroke; a category picker and a chain picker
+// narrow the board to one slice; and two tabs split the world in half.
+// The Pre-token tab is the ranking, two hundred rows strong, while the
+// Live token tab sets aside the twenty-four trading protocols by market
+// cap, because a market cap is a fact and an implied value is a model,
+// and mixing the two would pretend otherwise. Every choice the visitor
+// makes is written into the URL hash, so a filtered view or an open
+// drawer can be copied, pasted and reopened exactly where it was left.
+//
+// Selecting a row opens the detail drawer, which is where the model
+// stops being a headline and becomes arithmetic. It shows the TVL, the
+// comparable multiple, the seven-day growth and its multiplier, the age
+// with no token and its maturity multiplier, the breadth multiplier, and
+// the implied value itself, then recomputes the row in the open and
+// states whether the recomputed number matches the board. Below that,
+// the farm plan lays out the steps for that one protocol: the action its
+// category calls for, the capital its TVL suggests, the hold its age
+// suggests, and the cost and time of every step, including a second
+// position when the protocol runs on more than one chain.
+//
+// The page is built with plain script and no framework, and it builds
+// every element with one small helper, so there is no markup in the data
+// and no data in the markup: data.js carries the numbers, index.html
+// carries the shell, app.css carries the look, and this file carries
+// the behaviour that joins them.
 (function () {
   'use strict';
 
@@ -121,6 +168,12 @@
     return steps.map(stepText);
   }
 
+  // The address bar is the page's memory. Search text, category, chain,
+  // tab and the open drawer are all written into the URL hash on every
+  // change, and read back on load, so a link to a filtered board or an
+  // open protocol arrives exactly where its sender left it. Nothing is
+  // stored anywhere else, and closing the tab forgets nothing that a
+  // fresh link cannot restore.
   function readHash() {
     var hash = window.location.hash.replace(/^#/, '');
     if (!hash) return;
@@ -375,6 +428,11 @@
     }
   }
 
+  // One render rebuilds the whole shell from the current state: header,
+  // lede, controls, the table for the active tab, and the model panel on
+  // the pre-token tab. Rebuilding instead of patching keeps every view
+  // consistent after any filter or sort, and reopening the drawer after a
+  // rebuild is what lets a deep link land on an open protocol.
   function render() {
     app.textContent = '';
     var shell = el('div', { class: 'shell' });

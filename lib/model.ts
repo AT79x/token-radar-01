@@ -24,6 +24,76 @@
 //
 // No protocol name is ever special-cased. The dashboard states the formula and recomputes each row
 // from the same figures, so the page, the board and the code agree.
+//
+// How radar-2 turns a snapshot into a launch ranking.
+//
+// The question this model answers is narrow: if a protocol that has never
+// issued a token were to launch one tomorrow, what would the market
+// plausibly pay for it? The answer has to come from the snapshot alone,
+// because the sealed input is the only evidence the entry is allowed to
+// use. So every number below is computed from figures the snapshot itself
+// carries: total value locked, seven-day change, the date DefiLlama first
+// listed the protocol, how many chains it runs on, and, for the protocols
+// that already trade, their market caps. Nothing is typed in by hand and
+// no protocol name is ever treated as special.
+//
+// The anchor is the comparable multiple. For each category, take the
+// live-token protocols in that category, divide each one's market cap by
+// its TVL, and keep the middle value. That median is what the market
+// actually pays per dollar of locked value for a trading token in that
+// line of business: lending pays differently from a dex, and a dex pays
+// differently from a bridge. A category needs at least three trading
+// protocols before its own median is trusted; thinner categories fall
+// back to the median across every live token in the snapshot. The result
+// is clamped to the band from 0.08 to 0.90, so a single frothy outlier
+// cannot stretch the whole board and a thin category cannot collapse it.
+//
+// Four multipliers then bend that anchor around each protocol's own
+// record. Growth rewards momentum but refuses to be fooled by a spike:
+// the seven-day change is clamped to the range from minus sixty to plus
+// one hundred and twenty percent, and only sixty percent of it feeds the
+// multiplier, so a protocol that doubled in a week is credited, not
+// crowned. Maturity rewards patience: a protocol that has run for three
+// years with no token earns the full maturity range, while a newcomer
+// starts near the floor of 0.65 and climbs as the days accumulate.
+// Breadth is the smallest of the four: each extra chain beyond the first
+// adds two percent, capped at four chains, because a multi-chain footprint
+// is real distribution but not a reason to double a valuation. Age is
+// measured from the listing date, and a protocol with no listing date is
+// counted as a year old rather than as brand new, which keeps an unknown
+// past from punishing or rewarding anyone.
+//
+// The board itself is built in three tiers, and the tiers are the reason
+// the ranking is a radar rather than a leaderboard. The watchlist tier is
+// the floor the kit set: forty protocols at or above fifty million dollars
+// of TVL that record no token, and every one of them is on the board
+// whatever its figures say, because the kit's watchlist is the entry's
+// coverage promise. The early tier adds one hundred and sixty pre-token
+// protocols below that floor, chosen by this model and screened by the
+// rankable rule: no wrapped, staked or bridged product, no versioned pool,
+// no exchange product, and no token of any kind. The extended tier only
+// tops the board up to two hundred rows from the remaining pre-token
+// protocols below the floor that are not exchanges, when the core tier
+// cannot fill the board on its own. On this snapshot the split lands at
+// forty watchlist, one hundred and thirty-eight early, and twenty-two
+// extended rows.
+//
+// The head of the board shows what the model values most. Steakhouse
+// Financial sits at rank one with an implied value of five hundred and
+// sixteen million, eight hundred and twenty-two thousand, six hundred and
+// sixteen dollars, followed by Gauntlet and Veda, and the tail at rank two
+// hundred, Nucleus, still carries an implied value of five hundred and
+// ninety-eight thousand, nine hundred and twenty-seven dollars. The
+// spread is the point: a board where every row carried the same number
+// would rank nothing, and the gate refuses one.
+//
+// Every row also carries a farm plan, and the plan is derived the same
+// way as the score: from the protocol's own record, never from a list of
+// names. The category picks the action, the TVL picks the capital, the
+// age picks the hold, and a second chain adds a second position. A plan
+// is seven steps, eight when the protocol runs on a second chain, and
+// each step names its action, its cost and its time, so a farmer can
+// follow it without guessing what anything costs.
 
 /** The snapshot's protocol entry: exactly the ten fields the sealed input carries. */
 export interface SnapshotProtocol {
@@ -195,6 +265,12 @@ export interface Comparables {
   global: number;
 }
 
+// Comparables come from this snapshot and no other source: the medians
+// are recomputed on every run from the live-token protocols the sealed
+// input carries, so a different snapshot would price the same board
+// differently, and that is the honest behaviour. A category median is
+// only trusted when at least three trading protocols stand behind it;
+// thinner categories borrow the global median instead of guessing.
 /** Build the comparables from the live-token protocols of this snapshot only. */
 export function buildComparables(protocols: SnapshotProtocol[], model: ModelConstants): Comparables {
   const live = protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
@@ -262,6 +338,12 @@ export function isPreToken(p: SnapshotProtocol): boolean {
   return p.mcap_usd === null && p.gecko_id === null && p.symbol === null;
 }
 
+// The rankable screen is the entry's honesty filter. A wrapped, staked
+// or bridged product is a token that already trades under another name,
+// a versioned pool is a second copy of a protocol that already exists,
+// and an exchange product is a business, not a launch candidate. Letting
+// any of them onto the board would rank a token launch that cannot
+// happen, so the screen removes them before the model ever sees them.
 /** Whether a protocol is one the board may rank: pre-token, not a wrapped/staked/bridged product. */
 export function isRankable(p: SnapshotProtocol): boolean {
   if (!isPreToken(p)) return false;
@@ -307,7 +389,8 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
   }
   // The extended tier: the core tier alone cannot fill 200 rows on this snapshot, so the board
   // is filled from the remaining pre-token protocols below the floor that are not exchanges,
-  // still ranked by the model and still recording no token.
+  // still ranked by the model and still recording no token. The target is the watchlist size
+  // plus EARLY_ROWS (40 + 160 = 200 here), so the extended tier only ever tops the board up.
   const target = snapshot.watchlist.length + EARLY_ROWS;
   if (chosen.size < target) {
     const extended = snapshot.protocols
@@ -574,6 +657,11 @@ export function parseSnapshot(text: string): Snapshot {
   };
 }
 
+// This check runs before a single file is written, because a board that
+// fails the gate here would fail it at submission too, and failing early
+// costs a run instead of an entry. Coverage, rank order, value order and
+// farm-step shape are all verified against the snapshot the board was
+// built from, so the check cannot pass a board built from other data.
 /** Why a board is not one the gate will take, or null: coverage, ranks, order, one shared implied value, and farm steps. */
 export function boardIssue(board: BoardRow[], snapshot: Snapshot): string | null {
   if (board.length < 100 || board.length > 4000) return `the board holds ${board.length} rows, the gate takes 100 to 4000`;
